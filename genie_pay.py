@@ -23,7 +23,6 @@ user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Ge
 class PayBot(Thread):
 	def __init__(self, opt, data):
 		super(PayBot, self).__init__()
-
 		chrome_options = Options()
 		chrome_options.add_argument(f'user-agent={user_agent}')
 		chrome_options.add_argument("--headless")
@@ -37,6 +36,7 @@ class PayBot(Thread):
 		chrome_options.add_argument('--disable-gpu')
 		chrome_options.add_argument('--disable-dev-shm-usage')
 		chrome_options.add_argument('--no-sandbox')
+		chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
 		ser = Service(CHROME_DRIVER_PATH)
 		self.driver = webdriver.Chrome(service=ser, options=chrome_options)
@@ -83,9 +83,9 @@ class PayBot(Thread):
 			sleep(5)
 
 			# Login
-			self.driver.find_element(By.NAME, "EIN1").send_keys(str(self.ein1))
-			self.driver.find_element(By.NAME, "EIN2").send_keys(str(self.ein2))
-			self.driver.find_element(By.NAME, "PIN").send_keys(str(self.pin))
+			self.driver.find_element(By.NAME, "EIN1").send_keys(self.ein1)
+			self.driver.find_element(By.NAME, "EIN2").send_keys(self.ein2)
+			self.driver.find_element(By.NAME, "PIN").send_keys(self.pin)
 			self.driver.find_element(By.NAME, "password").send_keys(self.password)
 			self.driver.find_element(By.XPATH, "//input[@value='Login']").click()
 		except:
@@ -103,7 +103,7 @@ class PayBot(Thread):
 		try:
 			# Select Tax Form
 			form_select = Select(self.driver.find_element(By.NAME, "commonSelection"))
-			form_select.select_by_value(str(self.form))
+			form_select.select_by_value(self.form)
 			self.driver.find_element(By.XPATH, "//input[@value='next']").click() 
 
 			# Select Federal Tax Deposit
@@ -118,14 +118,14 @@ class PayBot(Thread):
 			self.driver.find_element(By.LINK_TEXT, "CLEAR FORM").click()
 
 			# Enter amount
-			self.driver.find_element(By.ID, "singlePayment.amount.value").send_keys(str(format(self.amount, '.2f')))
+			self.driver.find_element(By.ID, "singlePayment.amount.value").send_keys(str(format(float(self.amount), '.2f')))
 
 			# Select quarter
 			quarter_select = Select(self.driver.find_element(By.NAME, 'singlePayment.taxPeriodMonth'))
-			quarter_select.select_by_value(str(self.quarter * 3))
+			quarter_select.select_by_value(str(int(float(self.quarter)) * 3))
 
 			# Enter year
-			self.driver.find_element(By.NAME, "singlePayment.taxPeriodYear").send_keys(str(self.year))
+			self.driver.find_element(By.NAME, "singlePayment.taxPeriodYear").send_keys(self.year)
 
 			# Select payment date within business day
 			paid_day = date.today()
@@ -166,11 +166,6 @@ class PayBot(Thread):
 		self.driver.save_screenshot(PAYMENT_SUMMARY_PATH + "/" + fname)
 		self.log_out()
 
-	def same_date_payment(self):
-		self.load_payment_history()
-		most_recent_pay_date = payments[0].text.split()[1]
-		return most_recent_pay_date == date.today().strftime("%Y-%m-%d") 
-
 	def total_pay(self):
 		self.load_payment_history()
 
@@ -181,11 +176,15 @@ class PayBot(Thread):
 			for pay in payments:
 				setDate, initDate, taxForm, taxPeriod, paid_amount, status = pay.text.split()
 
-				if (taxForm == str(self.form)):
+				if (taxForm == self.form):
 					year, quarter = taxPeriod.split("/")
 
-					if (int(quarter[-1]) == self.quarter and int(year) == self.year):
-						self.tpaid += float(paid_amount.replace(',', '').replace('$', ''))	     
+					if (quarter[-1] == self.quarter and year == self.year):
+						self.tpaid += float(paid_amount.replace(',', '').replace('$', ''))
+
+			self.tpaid = format(float(self.tpaid), '.2f')  
+
+			#print(self.name + ":" + str(self.tpaid))
 		except:
 			self.gen_error("Total Pay Error!!!")
 
@@ -221,11 +220,11 @@ def menu():
 
 def task():
 	option = int(input("Enter: "))
-	df = pd.read_excel(DATA_PATH)
+	df = pd.read_excel(DATA_PATH, dtype=str)
 	check_EIN(df)
 
 	if (option == 1):
-		print(df.head())
+		print(df)
 	elif (option == 2 or option == 3 or option == 4):
 		# Confirm payment - safety feature
 		if (option == 2):
@@ -258,7 +257,7 @@ def task():
 
 		# Total paid summary
 		if (option == 4):
-			df['Tax Period'] = "Q" + df['Quarter'].astype(str) + "/" + df['Year'].astype(str)
+			df['Tax Period'] = "Q" + df['Quarter'] + "/" + df['Year']
 			df['Total'] = [o.tpaid for o in threads]
 			df[['Tax Period', 'Name', 'Total']].to_excel('Paid_Summary.xlsx', engine='openpyxl')
 
